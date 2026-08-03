@@ -1,7 +1,7 @@
 # Copy to config.yaml (or generate it with `python -m client.setup_wizard`).
 
 sftp:
-  host: sftp.example.com
+  host: sftp.buckyball.space
   port: 22
   username: chamber
   private_key_path: ~/.ssh/id_ed25519

@@ -37,7 +37,7 @@ def prompt_float(msg: str, default: float) -> float:
 def prompt_sftp_config() -> SftpConfig:
     print("-- SFTP settings --")
     return SftpConfig(
-        host=prompt("SFTP host"),
+        host=prompt("SFTP host", "sftp.buckyball.space"),
         port=prompt_int("SFTP port", 22),
         username=prompt("SFTP username", "chamber"),
         private_key_path=prompt("Path to SSH private key", "~/.ssh/id_ed25519"),
