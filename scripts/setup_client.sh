@@ -108,6 +108,13 @@ else
   .venv/bin/python -m client.setup_wizard --out config.yaml
 fi
 
+if [[ "$INSTALL_SERVICE" == true ]] && ! command -v systemctl &>/dev/null; then
+  echo "WARNING: --install-service was requested but systemctl isn't available on this" >&2
+  echo "         machine (no systemd -- expected if you're testing on macOS/non-Linux)." >&2
+  echo "         Skipping service install; falling back to foreground-run instructions." >&2
+  INSTALL_SERVICE=false
+fi
+
 if [[ "$INSTALL_SERVICE" == true ]]; then
   echo "== systemd service =="
   UNIT_PATH="/etc/systemd/system/chamber-client.service"
