@@ -22,34 +22,67 @@ a plain SFTP server, tolerant of intermittent connectivity.
 
 ## Quick start
 
-1. Set up the SFTP server: `docs/server_setup.md`.
-2. On the chamber machine, install dependencies and run the setup wizard to
-   pick audio devices/channels and write `config.yaml`:
+1. Set up the SFTP server: `sudo ./scripts/setup_server.sh <pubkey-file-or-string> ...`
+   (see `docs/server_setup.md` for details/manual steps).
+
+2. **On the chamber machine** (Linux/Raspberry Pi), run the one-shot setup
+   script. It clones this repo, installs system + Python dependencies, and
+   runs the device/SFTP setup wizard. Since the repo is private, the machine
+   needs an SSH key already added to GitHub with access to it first (a
+   deploy key is enough -- read access only). Once that's in place:
 
    ```
-   pip install -r requirements.txt
-   python -m client.setup_wizard
+   git clone git@github.com:rocksynthetic/buckyball-chamber.git ~/buckyball-chamber
+   ~/buckyball-chamber/scripts/setup_client.sh --install-service
    ```
 
-3. Install the client as a service so it survives reboots/crashes:
-   - Raspberry Pi / Linux: `systemd/README.md`
-   - Windows: `windows/install_service.md`
+   (re-running `scripts/setup_client.sh` later just pulls updates and
+   reuses the existing config -- pass `--reconfigure` to redo the wizard, or
+   `--dir`/`--repo-url` to override the defaults). Drop `--install-service`
+   to skip installing it as a systemd service and just test it in the
+   foreground first (see `systemd/README.md` / `windows/install_service.md`
+   for manual/Windows install instead).
 
-4. From wherever you have a recording to play, upload it:
+3. **On the machine you'll upload from** (e.g. your Mac), same idea but with
+   the lighter uploader-only script (no audio libraries needed):
 
    ```
-   python -m uploader.upload_job my_track.wav --config config.yaml
+   git clone git@github.com:rocksynthetic/buckyball-chamber.git ~/buckyball-chamber
+   ~/buckyball-chamber/scripts/setup_uploader.sh
    ```
 
-   This prints a job ID. Once the chamber has processed it, the recording
-   appears under the same job ID in `recordings/` on the SFTP server --
-   download it with any SFTP client.
+   (if you're already inside a clone of this repo, as on the machine this
+   was developed on, just run `./scripts/setup_uploader.sh` directly).
+
+4. From that machine, upload a job:
+
+   ```
+   cd ~/buckyball-chamber
+   .venv/bin/python -m uploader.upload_job upload my_track.wav --config config.yaml
+   ```
+
+   This prints a job ID and remembers it locally as "the last upload". Then
+   fetch the result -- this downloads immediately if it's already there, or
+   waits and polls (Ctrl+C to stop) until the chamber finishes processing it:
+
+   ```
+   .venv/bin/python -m uploader.upload_job download --config config.yaml
+   ```
+
+   Add `--timeout SECONDS` to give up after a while instead of waiting
+   indefinitely, or `--job-id ... --name ...` to fetch a specific past job
+   instead of the last one uploaded from this machine.
 
 ## Notes
 
 - WAV only for both playback and recordings, in this MVP.
 - Input channel count is configurable independently of output channel count,
   so an ambisonic microphone (4+ channels) is supported directly.
+- Each job opens the audio device at its own file's sample rate rather than
+  a fixed configured rate -- this relies on the client having exclusive
+  access to the device (no OS mixer resampling everything to one shared
+  rate). If the device can't support a given file's rate, the job fails
+  with a clear error and follows the normal retry/failed path.
 - Local disk usage stays bounded: a job's local files are deleted as soon as
   its recording is confirmed uploaded; failed-job files and orphaned temp
   files are swept on a TTL (see `client.failed_job_retention_days` /

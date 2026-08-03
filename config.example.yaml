@@ -23,6 +23,10 @@ audio:
   # first-order ambisonic mic (A-format or B-format), higher for
   # higher-order ambisonics, or 1-2 for a conventional mic.
   input_channels: 4
+  # Only used for the setup wizard's live test tone/recording -- actual
+  # playback jobs open the device at each uploaded file's own sample rate
+  # (the client has exclusive access to the device, so it can reconfigure
+  # it per job rather than requiring every upload to match one fixed rate).
   samplerate: 48000
   # Extra recording time after playback ends, to capture reverb/decay.
   tail_seconds: 2.0

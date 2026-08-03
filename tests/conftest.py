@@ -16,6 +16,12 @@ class FakeSftp:
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
+    def connect(self) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
     def remote_path(self, *parts: str) -> str:
         return str(self.base_dir.joinpath(*parts))
 
@@ -27,6 +33,9 @@ class FakeSftp:
 
     def stat_size(self, remote_path: str) -> int:
         return Path(remote_path).stat().st_size
+
+    def exists(self, remote_path: str) -> bool:
+        return Path(remote_path).exists()
 
     def rename(self, old_remote_path: str, new_remote_path: str) -> None:
         Path(old_remote_path).rename(new_remote_path)

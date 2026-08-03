@@ -85,6 +85,18 @@ def _match_channels(data: np.ndarray, target_channels: int) -> np.ndarray:
     return data[:, :target_channels]
 
 
+def _check_device_supports_rate(device_index: int, *, kind: str, channels: int, samplerate: int) -> None:
+    """Pre-flight check, so an unsupported rate fails with a clear message
+    instead of a raw PortAudioError from deep inside sd.playrec."""
+    check_fn = sd.check_output_settings if kind == "output" else sd.check_input_settings
+    try:
+        check_fn(device=device_index, channels=channels, samplerate=samplerate, dtype="float32")
+    except Exception as exc:  # noqa: BLE001 - sd raises its own PortAudioError type
+        raise AudioDeviceError(
+            f"{kind} device does not support {samplerate}Hz at {channels} channel(s): {exc}"
+        ) from exc
+
+
 def play_and_record(
     playback_path: str | Path,
     recording_path: str | Path,
@@ -92,7 +104,13 @@ def play_and_record(
 ) -> None:
     """Play playback_path through the output device while simultaneously
     recording from the input device, for the playback's duration plus a
-    fixed tail (to capture reverb/decay), then write the recording to disk.
+    fixed tail (to catch reverb/decay), then write the recording to disk.
+
+    The stream is opened at the playback file's own sample rate rather than
+    a fixed configured rate: since the client has exclusive access to the
+    device (no OS mixer resampling everything to one shared rate), each job
+    can just reconfigure the device to whatever rate its source file uses,
+    instead of requiring every upload to match a single fixed rate.
 
     Supports an arbitrary number of input channels (e.g. a 4+ channel
     ambisonic microphone) independent of the output channel count.
@@ -104,27 +122,29 @@ def play_and_record(
         audio_config.input_device_name, kind="input", required_channels=audio_config.input_channels
     )
 
-    data, file_samplerate = sf.read(str(playback_path), dtype="float32", always_2d=True)
-    if file_samplerate != audio_config.samplerate:
-        raise AudioDeviceError(
-            f"playback file samplerate {file_samplerate} != configured samplerate "
-            f"{audio_config.samplerate}; resampling is not supported in this MVP"
-        )
+    data, samplerate = sf.read(str(playback_path), dtype="float32", always_2d=True)
     data = _match_channels(data, audio_config.output_channels)
 
-    tail_frames = int(round(audio_config.tail_seconds * audio_config.samplerate))
+    _check_device_supports_rate(
+        output_device, kind="output", channels=audio_config.output_channels, samplerate=samplerate
+    )
+    _check_device_supports_rate(
+        input_device, kind="input", channels=audio_config.input_channels, samplerate=samplerate
+    )
+
+    tail_frames = int(round(audio_config.tail_seconds * samplerate))
     silence = np.zeros((tail_frames, audio_config.output_channels), dtype="float32")
     padded = np.concatenate([data, silence], axis=0)
 
     logger.info(
-        "playing %s (%.2fs) + %.2fs tail, recording %d channel(s)",
-        playback_path, len(data) / audio_config.samplerate, audio_config.tail_seconds,
+        "playing %s (%.2fs @ %dHz) + %.2fs tail, recording %d channel(s)",
+        playback_path, len(data) / samplerate, samplerate, audio_config.tail_seconds,
         audio_config.input_channels,
     )
 
     recorded = sd.playrec(
         padded,
-        samplerate=audio_config.samplerate,
+        samplerate=samplerate,
         channels=audio_config.input_channels,
         device=(input_device, output_device),
         dtype="float32",
@@ -132,5 +152,5 @@ def play_and_record(
     sd.wait()
 
     Path(recording_path).parent.mkdir(parents=True, exist_ok=True)
-    sf.write(str(recording_path), recorded, audio_config.samplerate)
-    logger.info("wrote recording to %s", recording_path)
+    sf.write(str(recording_path), recorded, samplerate)
+    logger.info("wrote recording to %s (%dHz)", recording_path, samplerate)

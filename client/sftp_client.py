@@ -113,6 +113,14 @@ class SftpClient:
         sftp = self._sftp_or_raise()
         sftp.posix_rename(old_remote_path, new_remote_path)
 
+    def exists(self, remote_path: str) -> bool:
+        sftp = self._sftp_or_raise()
+        try:
+            sftp.stat(remote_path)
+            return True
+        except FileNotFoundError:
+            return False
+
     def upload_atomic(self, local_path: Path, remote_dir: str, remote_name: str) -> str:
         """Upload local_path into remote_dir as remote_name, atomically.
 

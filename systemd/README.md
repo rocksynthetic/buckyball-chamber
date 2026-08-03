@@ -1,5 +1,10 @@
 # systemd setup (Raspberry Pi / Linux laptop)
 
+`../scripts/setup_client.sh --install-service` does all of this
+automatically, running as your normal login user out of `~/buckyball-chamber`
+rather than a dedicated `chamber` system user under `/opt`. Use that unless
+you specifically want the more locked-down dedicated-user layout below.
+
 1. Copy the project to `/opt/buckyball-chamber` and create a virtualenv:
 
    ```

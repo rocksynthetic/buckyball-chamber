@@ -3,6 +3,23 @@
 An SFTP-only chroot user on a small VPS is all this needs -- no managed
 SFTP service required at this volume.
 
+## Quick setup (recommended)
+
+`scripts/setup_server.sh` does steps 1-3 below for you, idempotently (safe
+to re-run -- e.g. if a later `scp` of `authorized_keys` clobbers ownership
+again, re-running it puts things back). Run it as root on the SFTP server:
+
+```
+sudo ./scripts/setup_server.sh <pubkey-file-or-string> [<pubkey-file-or-string> ...]
+```
+
+Pass one public key per machine that needs access (the on-site chamber
+client, and any machine running `uploader/upload_job.py`) -- either a path
+to a `.pub` file or the raw key string. Then skip to step 4 below.
+
+The rest of this doc describes what the script does manually, for reference
+or if you'd rather not run a script as root.
+
 ## 1. Create the user and directory tree
 
 ```
@@ -39,6 +56,16 @@ sudo chmod 600 /srv/sftp/chamber/.ssh/authorized_keys
 One shared SFTP user for both the client and the uploader is fine for this
 MVP -- don't build out per-actor accounts/permissions.
 
+**Gotcha:** `.ssh` and `authorized_keys` must be owned by `chamber`, not
+`root` -- even though the chroot dir itself must be root-owned (see above).
+OpenSSH's privilege-separated child re-opens `authorized_keys` *as the
+authenticating user* (a hardening measure against symlink/trust attacks),
+so a root-owned file is `Permission denied` to it regardless of mode bits.
+This is easy to reintroduce accidentally -- e.g. `scp`-ing a new
+`authorized_keys` file to the server as `root` recreates it as root-owned
+and silently breaks logins again. If auth starts failing after editing keys
+this way, re-run the chown above (or `scripts/setup_server.sh`).
+
 ## 3. sshd_config
 
 Add to `/etc/ssh/sshd_config` (or a drop-in under `/etc/ssh/sshd_config.d/`):
@@ -52,10 +79,13 @@ Match User chamber
     PasswordAuthentication no
 ```
 
-Then reload sshd:
+Then reload the SSH daemon. The systemd unit is named `ssh` on Debian/Ubuntu
+and `sshd` on RHEL/CentOS/Fedora -- check which one you have first:
 
 ```
-sudo systemctl reload sshd
+systemctl list-unit-files | grep -i ssh
+sudo systemctl reload ssh    # Debian/Ubuntu
+sudo systemctl reload sshd   # RHEL/CentOS/Fedora
 ```
 
 ## 4. Trust the host key before first connect
