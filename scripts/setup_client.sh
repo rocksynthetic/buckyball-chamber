@@ -42,21 +42,56 @@ else
 fi
 cd "$INSTALL_DIR"
 
+install_portaudio() {
+  if command -v apt-get &>/dev/null; then
+    sudo apt-get update -qq
+    sudo apt-get install -y libportaudio2
+  elif command -v dnf &>/dev/null; then
+    sudo dnf install -y portaudio
+  elif command -v yum &>/dev/null; then
+    sudo yum install -y portaudio
+  elif command -v pacman &>/dev/null; then
+    sudo pacman -Sy --noconfirm portaudio
+  elif command -v apk &>/dev/null; then
+    sudo apk add --no-cache portaudio
+  elif command -v zypper &>/dev/null; then
+    sudo zypper install -y portaudio
+  else
+    return 1
+  fi
+}
+
 echo "== System audio library =="
-if command -v apt-get &>/dev/null; then
-  sudo apt-get update -qq
-  sudo apt-get install -y libportaudio2
+if install_portaudio; then
+  echo "PortAudio installed"
 else
-  echo "WARNING: apt-get not found; install your distro's PortAudio package manually" \
+  echo "WARNING: could not auto-install PortAudio (no supported package manager found," >&2
+  echo "         or the install failed) -- install it manually for your distro" \
        "(sounddevice's Linux wheel links against the system libportaudio2)." >&2
 fi
 
-echo "== Audio group membership =="
-if id -nG "$USER" | grep -qw audio; then
-  echo "$USER is already in the audio group"
-else
-  sudo usermod -aG audio "$USER"
+add_to_audio_group() {
+  if id -nG "$USER" | grep -qw audio; then
+    echo "$USER is already in the audio group"
+    return 0
+  fi
+  if command -v usermod &>/dev/null; then
+    sudo usermod -aG audio "$USER"
+  elif command -v gpasswd &>/dev/null; then
+    sudo gpasswd -a "$USER" audio
+  elif command -v addgroup &>/dev/null; then
+    sudo addgroup "$USER" audio
+  else
+    return 1
+  fi
   echo "added $USER to the audio group -- log out/in (or reboot) for this to take effect"
+}
+
+echo "== Audio group membership =="
+if ! add_to_audio_group; then
+  echo "WARNING: could not add $USER to the audio group automatically" \
+       "(no usermod/gpasswd/addgroup found) -- add it manually if the client" \
+       "can't access the audio device." >&2
 fi
 
 echo "== Python environment =="
