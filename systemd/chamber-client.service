@@ -1,0 +1,15 @@
+[Unit]
+Description=Buckyball chamber playback/recording client
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=chamber
+WorkingDirectory=/opt/buckyball-chamber
+ExecStart=/opt/buckyball-chamber/.venv/bin/python -m client.main --config /opt/buckyball-chamber/config.yaml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

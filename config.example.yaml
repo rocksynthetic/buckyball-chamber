@@ -1,0 +1,40 @@
+# Copy to config.yaml (or generate it with `python -m client.setup_wizard`).
+
+sftp:
+  host: sftp.example.com
+  port: 22
+  username: chamber
+  private_key_path: ~/.ssh/id_ed25519
+  remote_base_dir: /data
+  connect_timeout_seconds: 15
+  backoff_base_seconds: 5
+  backoff_cap_seconds: 300
+
+audio:
+  # Device names, not indices -- ALSA/PortAudio indices can shift across
+  # reboots or USB reconnects. A substring match is used against
+  # sounddevice.query_devices() names. Leave output/input the same for a
+  # single combined interface.
+  output_device_name: "USB Audio"
+  input_device_name: "USB Audio"
+  # Output channels: typically 2 for stereo speakers.
+  output_channels: 2
+  # Input channels: set to match your microphone -- e.g. 4 for a
+  # first-order ambisonic mic (A-format or B-format), higher for
+  # higher-order ambisonics, or 1-2 for a conventional mic.
+  input_channels: 4
+  samplerate: 48000
+  # Extra recording time after playback ends, to capture reverb/decay.
+  tail_seconds: 2.0
+
+client:
+  local_state_dir: ./state
+  poll_interval_seconds: 10
+  max_job_retries: 5
+  failed_job_retention_days: 7
+  temp_file_ttl_days: 1
+  min_free_disk_mb: 500
+
+logging:
+  log_dir: ./logs
+  level: INFO
