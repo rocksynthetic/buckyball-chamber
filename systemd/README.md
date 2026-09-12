@@ -22,6 +22,26 @@ you specifically want the more locked-down dedicated-user layout below.
    sudo apt install libportaudio2
    ```
 
+   If PulseAudio is also installed but not running (typical for a headless
+   box, since PulseAudio normally starts per-user-login-session), PortAudio
+   will fail to initialize *entirely* with an error like:
+
+   ```
+   PortAudioError: Error initalizing PortAudio: Unanticipated host error
+   [PaErrorCode -9999]: 'PulseAudio_Initialize: Can't connect to server'
+   ```
+
+   This is a known bug in Debian's `libportaudio2` PulseAudio host-API
+   patch: instead of skipping the unreachable PulseAudio backend and
+   falling back to ALSA, it aborts initialization for all backends. Since a
+   systemd daemon never has a PulseAudio session to connect to, this hits
+   every daemon install unless PulseAudio is removed:
+
+   ```
+   sudo systemctl --user stop pulseaudio.socket pulseaudio.service
+   sudo apt-get remove --purge -y pulseaudio pulseaudio-utils
+   ```
+
 3. Run the setup wizard once to generate `config.yaml`:
 
    ```

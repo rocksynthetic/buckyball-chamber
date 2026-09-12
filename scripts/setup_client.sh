@@ -94,6 +94,22 @@ if ! add_to_audio_group; then
        "can't access the audio device." >&2
 fi
 
+echo "== PulseAudio check =="
+if command -v dpkg &>/dev/null && dpkg -l pulseaudio 2>/dev/null | grep -q '^ii'; then
+  if ! pactl info &>/dev/null; then
+    echo "WARNING: PulseAudio is installed but not reachable (no server running)." >&2
+    echo "         Debian/Raspberry Pi OS's libportaudio2 has a known bug where it" >&2
+    echo "         fails to initialize *entirely* -- not just falls back to ALSA --" >&2
+    echo "         if it can't connect to a PulseAudio server. This breaks both the" >&2
+    echo "         setup wizard and the systemd service, since a headless/daemon" >&2
+    echo "         process has no PulseAudio session to connect to." >&2
+    echo "         If this machine doesn't need PulseAudio for anything else, remove" >&2
+    echo "         it so PortAudio falls back to ALSA directly:" >&2
+    echo "           sudo systemctl --user stop pulseaudio.socket pulseaudio.service" >&2
+    echo "           sudo apt-get remove --purge -y pulseaudio pulseaudio-utils" >&2
+  fi
+fi
+
 echo "== Python environment =="
 if [[ -d .venv && ! -x .venv/bin/pip ]]; then
   echo ".venv exists but is missing pip (likely from an interrupted previous run) -- recreating it"
