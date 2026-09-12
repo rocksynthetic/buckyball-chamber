@@ -1,6 +1,9 @@
 """Prompt helpers shared by client/setup_wizard.py and uploader/setup_wizard.py."""
 from __future__ import annotations
 
+import subprocess
+from pathlib import Path
+
 from client.config import SftpConfig
 from client.sftp_client import SftpClient, SftpConnectionError
 
@@ -59,6 +62,45 @@ def sftp_config_dict(sftp_config: SftpConfig) -> dict:
         "backoff_base_seconds": sftp_config.backoff_base_seconds,
         "backoff_cap_seconds": sftp_config.backoff_cap_seconds,
     }
+
+
+def ensure_host_key_trusted(host: str, port: int) -> None:
+    """Add host's SSH host key to ~/.ssh/known_hosts if it isn't there yet.
+
+    paramiko's SSHClient.load_system_host_keys() (the reject-unknown-host-key
+    default this project relies on -- see docs/server_setup.md step 4) reads
+    that file, so without this the first connection always fails with
+    "Server '<host>' not found in known_hosts".
+    """
+    known_hosts = Path.home() / ".ssh" / "known_hosts"
+    known_hosts.parent.mkdir(parents=True, exist_ok=True)
+    known_hosts.parent.chmod(0o700)
+    known_hosts.touch(exist_ok=True)
+
+    already_trusted = subprocess.run(
+        ["ssh-keygen", "-F", host, "-f", str(known_hosts)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if already_trusted.returncode == 0:
+        return
+
+    print(f"Adding {host}'s SSH host key to {known_hosts} ...")
+    scan = subprocess.run(
+        ["ssh-keyscan", "-t", "ed25519", "-p", str(port), host],
+        capture_output=True,
+        text=True,
+    )
+    if not scan.stdout.strip():
+        print(
+            f"  Warning: couldn't fetch a host key for {host}:{port} "
+            f"(unreachable, or wrong host/port?) -- SFTP connections will fail "
+            f"until this is resolved."
+        )
+        return
+    with known_hosts.open("a") as f:
+        f.write(scan.stdout)
+    print(f"  Trusted {host}'s host key.")
 
 
 def test_sftp_connection(sftp_config: SftpConfig) -> bool:

@@ -13,7 +13,15 @@ import sounddevice as sd
 
 from client.audio import list_devices
 from client.config import save_config
-from client.wizard_common import prompt, prompt_float, prompt_int, prompt_sftp_config, sftp_config_dict, test_sftp_connection
+from client.wizard_common import (
+    ensure_host_key_trusted,
+    prompt,
+    prompt_float,
+    prompt_int,
+    prompt_sftp_config,
+    sftp_config_dict,
+    test_sftp_connection,
+)
 
 
 def _print_devices(devices: list[dict]) -> None:
@@ -101,6 +109,7 @@ def run(out_path: str) -> None:
     tail_seconds = prompt_float("Recording tail seconds (extra time after playback ends)", 2.0)
 
     sftp_config = prompt_sftp_config()
+    ensure_host_key_trusted(sftp_config.host, sftp_config.port)
     if not test_sftp_connection(sftp_config):
         if not prompt("Save the config anyway? [y/n]", "n").lower().startswith("y"):
             sys.exit(1)

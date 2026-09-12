@@ -14,7 +14,13 @@ import sys
 from pathlib import Path
 
 from client.config import save_config
-from client.wizard_common import prompt, prompt_sftp_config, sftp_config_dict, test_sftp_connection
+from client.wizard_common import (
+    ensure_host_key_trusted,
+    prompt,
+    prompt_sftp_config,
+    sftp_config_dict,
+    test_sftp_connection,
+)
 
 
 def _ensure_key(key_path: Path) -> None:
@@ -53,6 +59,7 @@ def run(out_path: str) -> None:
     _ensure_key(key_path)
 
     sftp_config = prompt_sftp_config(default_private_key_path=str(key_path))
+    ensure_host_key_trusted(sftp_config.host, sftp_config.port)
     if not test_sftp_connection(sftp_config):
         if not prompt("Save the config anyway? [y/n]", "n").lower().startswith("y"):
             sys.exit(1)

@@ -141,8 +141,18 @@ sudo systemctl reload sshd   # RHEL/CentOS/Fedora
 
 The client and uploader use `paramiko`'s default reject-unknown-host-key
 behavior (no auto-trust, to avoid silently accepting a man-in-the-middle).
-Before running the client or uploader for the first time, add the server's
-host key to the machine's known_hosts once:
+Before running the client or uploader for the first time, the server's host
+key must be added to the machine's `~/.ssh/known_hosts` once.
+
+**Both `client/setup_wizard.py` and `uploader/setup_wizard.py` do this
+automatically now** (right after you enter the SFTP host/port, before the
+connection test), so nothing manual is needed if you set things up via
+`scripts/setup_client.sh` / `scripts/setup_uploader.sh`. It's idempotent --
+safe to run again, and skips silently if the host is already trusted.
+
+If you're setting things up another way (skipped the wizard, or a fresh
+`client.main`/`upload_job` run on a machine that never ran it), do this
+manually instead:
 
 ```
 ssh-keyscan -t ed25519 <sftp-host> >> ~/.ssh/known_hosts
