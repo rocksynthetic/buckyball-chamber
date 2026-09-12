@@ -165,8 +165,11 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
   sudo systemctl daemon-reload
-  sudo systemctl enable --now chamber-client
-  echo "installed and started chamber-client.service (as $USER)"
+  sudo systemctl enable chamber-client
+  # restart (not just enable --now) so re-running with --reconfigure picks up
+  # config.yaml / unit file changes on an already-running service
+  sudo systemctl restart chamber-client
+  echo "installed and (re)started chamber-client.service (as $USER)"
   echo "check status with: sudo systemctl status chamber-client"
   echo "check logs with:   sudo journalctl -u chamber-client -f"
 else
