@@ -19,19 +19,20 @@ from client.wizard_common import ensure_host_key_trusted, prompt_sftp_config, sf
 
 def _ensure_key(key_path: Path) -> None:
     """Generate a passphrase-less ed25519 keypair at key_path if one isn't
-    already there, and surface the public half for adding to the server."""
+    already there, and surface the public half for adding to the server --
+    every run, not just when freshly generated, so re-running the wizard is
+    always a reliable way to get this install's current public key back."""
     if key_path.exists():
         print(f"Using existing keypair at {key_path}")
-        return
-
-    key_path.parent.mkdir(parents=True, exist_ok=True)
-    key_path.parent.chmod(0o700)
-    print(f"Generating a new SSH keypair at {key_path} ...")
-    subprocess.run(
-        ["ssh-keygen", "-t", "ed25519", "-f", str(key_path), "-N", ""],
-        check=True,
-        stdout=subprocess.DEVNULL,
-    )
+    else:
+        key_path.parent.mkdir(parents=True, exist_ok=True)
+        key_path.parent.chmod(0o700)
+        print(f"Generating a new SSH keypair at {key_path} ...")
+        subprocess.run(
+            ["ssh-keygen", "-t", "ed25519", "-f", str(key_path), "-N", ""],
+            check=True,
+            stdout=subprocess.DEVNULL,
+        )
 
     pubkey_text = key_path.with_suffix(".pub").read_text().strip()
     print("\nPublic key (send this to whoever runs setup_server.sh on the SFTP server):")
