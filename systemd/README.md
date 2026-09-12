@@ -64,10 +64,13 @@ you specifically want the more locked-down dedicated-user layout below.
    (If you changed `User=` in the unit file to a different account, enable
    lingering for that account instead.)
 
-5. Install and start the service:
+5. Fill in the real UID in the unit file's `XDG_RUNTIME_DIR` line, then
+   install and start the service:
 
    ```
+   id -u chamber   # note this number
    sudo cp systemd/chamber-client.service /etc/systemd/system/
+   sudo sed -i "s|<chamber-uid>|$(id -u chamber)|" /etc/systemd/system/chamber-client.service
    sudo systemctl daemon-reload
    sudo systemctl enable --now chamber-client
    sudo journalctl -u chamber-client -f

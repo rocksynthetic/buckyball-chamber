@@ -145,6 +145,11 @@ if [[ "$INSTALL_SERVICE" == true ]]; then
   echo "enabled lingering for $USER"
 
   echo "== systemd service =="
+  # Bake in the literal UID rather than relying on the %U specifier: on some
+  # systemd versions %U doesn't resolve to this unit's User= and silently
+  # ends up meaning the service manager's own UID (0/root) instead, pointing
+  # XDG_RUNTIME_DIR at a runtime dir with no PulseAudio session in it.
+  USER_UID="$(id -u "$USER")"
   UNIT_PATH="/etc/systemd/system/chamber-client.service"
   sudo tee "$UNIT_PATH" >/dev/null <<EOF
 [Unit]
@@ -155,7 +160,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=$USER
-Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=XDG_RUNTIME_DIR=/run/user/$USER_UID
 WorkingDirectory=$INSTALL_DIR
 ExecStart=$INSTALL_DIR/.venv/bin/python -m client.main --config $INSTALL_DIR/config.yaml
 Restart=always
