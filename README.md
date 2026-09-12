@@ -61,17 +61,45 @@ a plain SFTP server, tolerant of intermittent connectivity.
    .venv/bin/python -m uploader.upload_job upload my_track.wav --config config.yaml
    ```
 
-   This prints a job ID and remembers it locally as "the last upload". Then
-   fetch the result -- this downloads immediately if it's already there, or
-   waits and polls (Ctrl+C to stop) until the chamber finishes processing it:
+   This prints a job ID and remembers it locally as "the last upload" (in a
+   small state file next to `config.yaml`), so the next `download` with no
+   arguments knows what to fetch. Then fetch the result:
 
    ```
    .venv/bin/python -m uploader.upload_job download --config config.yaml
    ```
 
-   Add `--timeout SECONDS` to give up after a while instead of waiting
-   indefinitely, or `--job-id ... --name ...` to fetch a specific past job
-   instead of the last one uploaded from this machine.
+   **Waiting mode**: if the recording isn't ready yet, `download` doesn't
+   just fail -- it polls until the chamber finishes processing the job,
+   downloading it the moment it appears. What this looks like:
+
+   - Downloads immediately if the recording is already sitting in
+     `recordings/` on the server (e.g. you ran `download` again after
+     Ctrl+C'ing an earlier wait).
+   - Otherwise prints `Recording not ready yet; waiting (polling every 10s,
+     Ctrl+C to stop)...` once, then re-checks the server every
+     `--poll-interval` seconds (default 10) without repeating that message
+     each time.
+   - Waits indefinitely by default. Pass `--timeout SECONDS` to give up
+     after a while instead (raises an error and exits 1 rather than hanging
+     forever, e.g. for use in a script).
+   - Ctrl+C at any point during the wait exits cleanly (prints "Stopped
+     waiting." and exits 1) -- it doesn't cancel the chamber-side job, so
+     running `download` again later still picks up the result once it's
+     ready.
+   - If the job instead shows up in `failed/` on the server (e.g. the audio
+     device rejected the file's sample rate), `download` stops waiting
+     immediately with an error naming the failed path, instead of polling
+     forever for a recording that will never arrive.
+   - A dropped/flaky connection to the SFTP server during the wait is
+     retried automatically (prints "connection issue, will retry: ...")
+     rather than aborting the wait.
+   - Saved to `./<job_id>__<name>__recording.wav` by default; pass `--out
+     PATH` to choose a different destination.
+
+   Pass `--job-id ... --name ...` to fetch a specific past job instead of
+   the last one uploaded from this machine (`--name` can be omitted if
+   `--job-id` matches that last recorded upload).
 
 ## Notes
 
