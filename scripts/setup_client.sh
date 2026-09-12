@@ -105,7 +105,6 @@ if command -v dpkg &>/dev/null && dpkg -l pulseaudio 2>/dev/null | grep -q '^ii'
     echo "         process has no PulseAudio session to connect to." >&2
     echo "         If this machine doesn't need PulseAudio for anything else, remove" >&2
     echo "         it so PortAudio falls back to ALSA directly:" >&2
-    echo "           sudo systemctl --user stop pulseaudio.socket pulseaudio.service" >&2
     echo "           sudo apt-get remove --purge -y pulseaudio pulseaudio-utils" >&2
   fi
 fi
@@ -136,6 +135,15 @@ if [[ "$INSTALL_SERVICE" == true ]] && ! command -v systemctl &>/dev/null; then
 fi
 
 if [[ "$INSTALL_SERVICE" == true ]]; then
+  echo "== systemd lingering =="
+  # libportaudio2 on Debian/Raspberry Pi OS hard-depends on libpulse0, and
+  # PortAudio fails to initialize entirely if it can't reach a PulseAudio
+  # server. That server normally only runs during an interactive login
+  # session, which a systemd daemon doesn't have. Lingering tells systemd to
+  # start $USER's user session (and its PulseAudio socket) at boot instead.
+  sudo loginctl enable-linger "$USER"
+  echo "enabled lingering for $USER"
+
   echo "== systemd service =="
   UNIT_PATH="/etc/systemd/system/chamber-client.service"
   sudo tee "$UNIT_PATH" >/dev/null <<EOF
@@ -147,6 +155,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=$USER
+Environment=XDG_RUNTIME_DIR=/run/user/%U
 WorkingDirectory=$INSTALL_DIR
 ExecStart=$INSTALL_DIR/.venv/bin/python -m client.main --config $INSTALL_DIR/config.yaml
 Restart=always

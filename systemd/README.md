@@ -35,12 +35,13 @@ you specifically want the more locked-down dedicated-user layout below.
    patch: instead of skipping the unreachable PulseAudio backend and
    falling back to ALSA, it aborts initialization for all backends. Since a
    systemd daemon never has a PulseAudio session to connect to, this hits
-   every daemon install unless PulseAudio is removed:
+   every daemon install.
 
-   ```
-   sudo systemctl --user stop pulseaudio.socket pulseaudio.service
-   sudo apt-get remove --purge -y pulseaudio pulseaudio-utils
-   ```
+   Note: `libportaudio2` on Debian/Raspberry Pi OS *hard-depends* on
+   `libpulse0`, so removing PulseAudio isn't an option here -- it takes
+   `libportaudio2` and core ALSA userspace (`libasound2t64` etc.) down with
+   it. Instead, enable systemd lingering (step 4 below) so a PulseAudio
+   session exists at boot without anyone logging in.
 
 3. Run the setup wizard once to generate `config.yaml`:
 
@@ -49,13 +50,19 @@ you specifically want the more locked-down dedicated-user layout below.
    ```
 
 4. Create a dedicated `chamber` user (or adjust `User=` in the unit file to
-   an existing account that has access to the audio devices):
+   an existing account that has access to the audio devices), and enable
+   lingering so a PulseAudio session is available for it at boot without an
+   interactive login:
 
    ```
    sudo useradd --system --home /opt/buckyball-chamber chamber
    sudo usermod -aG audio chamber
    sudo chown -R chamber:chamber /opt/buckyball-chamber
+   sudo loginctl enable-linger chamber
    ```
+
+   (If you changed `User=` in the unit file to a different account, enable
+   lingering for that account instead.)
 
 5. Install and start the service:
 
