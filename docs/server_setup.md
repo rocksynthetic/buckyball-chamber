@@ -20,6 +20,44 @@ to a `.pub` file or the raw key string. Then skip to step 4 below.
 The rest of this doc describes what the script does manually, for reference
 or if you'd rather not run a script as root.
 
+## 0. On each client machine, generate a keypair
+
+Do this on the chamber machine and on any machine that will run
+`uploader/upload_job.py` -- *not* on the server. Each machine gets its own
+keypair; nothing needs to be synced between them except the public halves,
+which get appended to the server's `authorized_keys` (step 2 below):
+
+```
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""
+```
+
+- `-N ""` gives the key no passphrase. This isn't optional for the chamber
+  client: it runs unattended as a systemd daemon with nothing able to type a
+  passphrase in, so a passphrase-protected key just hangs paramiko's connect
+  call forever.
+- The default path (`~/.ssh/id_ed25519`) matches `sftp.private_key_path`'s
+  default in `config.yaml` / the setup wizard's prompt, so you normally
+  don't need to change that setting afterward.
+- If you're using the dedicated `chamber` system-user layout described in
+  `systemd/README.md` (instead of `scripts/setup_client.sh`'s normal-user
+  layout), generate the key *as* that user so it ends up under its home
+  directory (`/opt/buckyball-chamber/.ssh/`), where the daemon actually
+  looks for it at runtime (`private_key_path`'s `~` expands using the
+  service's own `$HOME`, i.e. the account in the unit's `User=`):
+  ```
+  sudo -u chamber ssh-keygen -t ed25519 -f /opt/buckyball-chamber/.ssh/id_ed25519 -N ""
+  ```
+- Print the public key to hand to whoever runs `setup_server.sh` (or to
+  paste into `authorized_keys` yourself in step 2):
+  ```
+  cat ~/.ssh/id_ed25519.pub
+  ```
+
+This is a separate keypair from any GitHub deploy key used to `git clone`
+this (private) repo onto the chamber machine -- that one only grants read
+access to the repo and has nothing to do with authenticating to the SFTP
+server.
+
 ## 1. Create the user and directory tree
 
 ```
@@ -41,8 +79,11 @@ chroot root, not `/srv/sftp/chamber/data`).
 
 ## 2. Key-based auth only
 
-Generate a keypair for the chamber client (if it doesn't have one yet) and
-one for whoever uploads jobs, then add both public keys:
+Take the public keys generated on each client machine in step 0 and add
+both to this server-side `chamber` user's `authorized_keys` (note: this is
+the SFTP login user on the *server* -- an unrelated namesake of the
+optional dedicated `chamber` system user on the on-site Raspberry Pi
+described in `systemd/README.md`):
 
 ```
 sudo mkdir -p /srv/sftp/chamber/.ssh
@@ -100,7 +141,11 @@ ssh-keyscan -t ed25519 <sftp-host> >> ~/.ssh/known_hosts
 ```
 
 Do this on both the on-site chamber machine and any machine that will run
-`uploader/upload_job.py`.
+`uploader/upload_job.py`. As with step 0, if the chamber client runs as a
+dedicated `chamber` system user, run this as that user (`sudo -u chamber
+ssh-keyscan ...`) so `known_hosts` lands in its home directory, since
+`paramiko.SSHClient.load_system_host_keys()` reads the *running process's*
+`~/.ssh/known_hosts` -- not whichever user happened to run this command.
 
 ## 5. No retention/cleanup policy in MVP
 
