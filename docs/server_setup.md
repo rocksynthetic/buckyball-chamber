@@ -22,10 +22,18 @@ or if you'd rather not run a script as root.
 
 ## 0. On each client machine, generate a keypair
 
-Do this on the chamber machine and on any machine that will run
-`uploader/upload_job.py` -- *not* on the server. Each machine gets its own
-keypair; nothing needs to be synced between them except the public halves,
-which get appended to the server's `authorized_keys` (step 2 below):
+**Uploader machines**: `scripts/setup_uploader.sh` does this automatically
+-- its wizard generates a dedicated keypair under the install directory
+(`~/buckyball-chamber/keys/id_ed25519`, not `~/.ssh`), prints the public
+half, and copies it to the clipboard (macOS) so you can paste it straight
+into an email/Slack message to whoever runs `setup_server.sh`. Nothing
+below is needed for an uploader machine set up this way -- skip to step 2.
+
+**Chamber machine**, or anything set up manually instead of via the script
+above: do this yourself, on that machine -- *not* on the server. Each
+machine gets its own keypair; nothing needs to be synced between them
+except the public halves, which get appended to the server's
+`authorized_keys` (step 2 below):
 
 ```
 ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""

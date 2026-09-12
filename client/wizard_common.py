@@ -34,13 +34,13 @@ def prompt_float(msg: str, default: float) -> float:
             print("Please enter a number.")
 
 
-def prompt_sftp_config() -> SftpConfig:
+def prompt_sftp_config(default_private_key_path: str = "~/.ssh/id_ed25519") -> SftpConfig:
     print("-- SFTP settings --")
     return SftpConfig(
         host=prompt("SFTP host", "sftp.buckyball.space"),
         port=prompt_int("SFTP port", 22),
         username=prompt("SFTP username", "chamber"),
-        private_key_path=prompt("Path to SSH private key", "~/.ssh/id_ed25519"),
+        private_key_path=prompt("Path to SSH private key", default_private_key_path),
         remote_base_dir=prompt("Remote base directory", "/data"),
         connect_timeout_seconds=prompt_float("Connect timeout seconds", 15.0),
         backoff_base_seconds=prompt_float("Backoff base seconds", 5.0),

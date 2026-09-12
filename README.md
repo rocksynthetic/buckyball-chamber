@@ -59,6 +59,13 @@ a plain SFTP server, tolerant of intermittent connectivity.
    need `.venv/bin/python -m uploader.upload_job --config ...` typed out each
    time (the script tells you if `~/.local/bin` needs adding to your PATH).
 
+   The wizard generates a dedicated SSH keypair for this install under
+   `keys/id_ed25519` (not `~/.ssh` -- kept separate from any other keys on
+   this machine), prints its public half, and copies it to the clipboard on
+   macOS. Paste that into an email/Slack message to whoever runs
+   `scripts/setup_server.sh` on the SFTP server (see `docs/server_setup.md`)
+   -- it's not secret, just needs to land in the server's `authorized_keys`.
+
 4. From that machine, send a job -- uploads the file and waits for the
    finished recording, in one step:
 
