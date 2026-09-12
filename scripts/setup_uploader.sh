@@ -85,7 +85,12 @@ esac
 
 cat <<EOF
 
-Setup done. From anywhere:
+Setup done. If a keypair was just generated above, this won't be able to
+connect until that public key is added to the server -- once it has been,
+verify with:
+  chamber test
+
+Then, from anywhere:
   chamber send my_track.wav       # upload and wait for the finished recording
   chamber upload my_track.wav     # upload only
   chamber download                # fetch the last upload's recording (waits if not ready)

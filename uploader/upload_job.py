@@ -16,6 +16,7 @@ Usage:
     python -m uploader.upload_job download --config config.yaml
     python -m uploader.upload_job download --job-id 20260803T101500Z-ab12 --name my_track.wav
     python -m uploader.upload_job send my_track.wav --config config.yaml
+    python -m uploader.upload_job test --config config.yaml
 """
 from __future__ import annotations
 
@@ -32,6 +33,7 @@ import yaml
 
 from client.config import SftpConfig
 from client.sftp_client import SftpClient, SftpConnectionError
+from client.wizard_common import test_sftp_connection
 
 
 def generate_job_id() -> str:
@@ -229,7 +231,18 @@ def main(argv: list[str] | None = None) -> int:
     send_parser.add_argument("--config", default="config.yaml", help="path to a config.yaml with an sftp: section")
     _add_download_wait_args(send_parser)
 
+    test_parser = subparsers.add_parser("test", help="test the SFTP connection using this config, without uploading anything")
+    test_parser.add_argument("--config", default="config.yaml", help="path to a config.yaml with an sftp: section")
+
     args = parser.parse_args(argv)
+
+    if args.mode == "test":
+        try:
+            sftp_config = load_sftp_config(args.config)
+        except (FileNotFoundError, KeyError) as exc:
+            print(f"Error: could not read {args.config}: {exc}", file=sys.stderr)
+            return 1
+        return 0 if test_sftp_connection(sftp_config) else 1
 
     if args.mode == "upload":
         if _upload_and_report(args.file, args.config) is None:

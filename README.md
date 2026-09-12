@@ -65,6 +65,13 @@ a plain SFTP server, tolerant of intermittent connectivity.
    macOS. Paste that into an email/Slack message to whoever runs
    `scripts/setup_server.sh` on the SFTP server (see `docs/server_setup.md`)
    -- it's not secret, just needs to land in the server's `authorized_keys`.
+   The wizard doesn't test the connection itself (a fresh key can't
+   possibly be authorized yet), so once it's been added server-side,
+   confirm with:
+
+   ```
+   chamber test
+   ```
 
 4. From that machine, send a job -- uploads the file and waits for the
    finished recording, in one step:
