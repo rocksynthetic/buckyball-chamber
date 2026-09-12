@@ -95,6 +95,10 @@ if ! add_to_audio_group; then
 fi
 
 echo "== Python environment =="
+if [[ -d .venv && ! -x .venv/bin/pip ]]; then
+  echo ".venv exists but is missing pip (likely from an interrupted previous run) -- recreating it"
+  rm -rf .venv
+fi
 if [[ ! -d .venv ]]; then
   python3 -m venv .venv
 fi
