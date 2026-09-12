@@ -15,6 +15,7 @@ Usage:
     python -m uploader.upload_job upload my_track.wav --config config.yaml
     python -m uploader.upload_job download --config config.yaml
     python -m uploader.upload_job download --job-id 20260803T101500Z-ab12 --name my_track.wav
+    python -m uploader.upload_job send my_track.wav --config config.yaml
 """
 from __future__ import annotations
 
@@ -162,6 +163,49 @@ def download_recording(
     )
 
 
+def _wait_and_report(
+    config_path: str,
+    job_id: str,
+    original_name: str,
+    out_path: str | None,
+    poll_interval: float,
+    timeout: float | None,
+) -> int:
+    try:
+        destination = download_recording(config_path, job_id, original_name, out_path, poll_interval, timeout)
+    except (SftpConnectionError, RuntimeError, TimeoutError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("\nStopped waiting.", file=sys.stderr)
+        return 1
+
+    print(f"Downloaded to {destination}")
+    return 0
+
+
+def _upload_and_report(file_path: str, config_path: str) -> tuple[str, str] | None:
+    """Upload file_path and print the result, returning (job_id, final_path)
+    on success or None (having already printed an error) on failure."""
+    try:
+        job_id, final_path = upload(file_path, config_path)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return None
+    except SftpConnectionError as exc:
+        print(f"Could not connect to the SFTP server: {exc}", file=sys.stderr)
+        return None
+    print(f"Uploaded as {final_path}")
+    print(f"Job ID: {job_id}")
+    return job_id, final_path
+
+
+def _add_download_wait_args(subparser: argparse.ArgumentParser) -> None:
+    subparser.add_argument("--out", help="where to save the recording (default: ./<job_id>__<name>__recording.wav)")
+    subparser.add_argument("--poll-interval", type=float, default=10.0, help="seconds between checks while waiting")
+    subparser.add_argument("--timeout", type=float, default=None, help="give up after this many seconds (default: wait indefinitely)")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Upload/download chamber playback jobs over SFTP")
     subparsers = parser.add_subparsers(dest="mode", required=True)
@@ -176,25 +220,31 @@ def main(argv: list[str] | None = None) -> int:
     download_parser.add_argument("--config", default="config.yaml", help="path to a config.yaml with an sftp: section")
     download_parser.add_argument("--job-id", help="job id to download (defaults to the last upload)")
     download_parser.add_argument("--name", help="original filename for that job (required alongside --job-id unless it matches the last upload)")
-    download_parser.add_argument("--out", help="where to save the recording (default: ./<job_id>__<name>__recording.wav)")
-    download_parser.add_argument("--poll-interval", type=float, default=10.0, help="seconds between checks while waiting")
-    download_parser.add_argument("--timeout", type=float, default=None, help="give up after this many seconds (default: wait indefinitely)")
+    _add_download_wait_args(download_parser)
+
+    send_parser = subparsers.add_parser(
+        "send", help="upload a .wav file and wait for its finished recording, in one step"
+    )
+    send_parser.add_argument("file", help="path to a .wav file to play in the chamber")
+    send_parser.add_argument("--config", default="config.yaml", help="path to a config.yaml with an sftp: section")
+    _add_download_wait_args(send_parser)
 
     args = parser.parse_args(argv)
 
     if args.mode == "upload":
-        try:
-            job_id, final_path = upload(args.file, args.config)
-        except (FileNotFoundError, ValueError) as exc:
-            print(f"Error: {exc}", file=sys.stderr)
+        if _upload_and_report(args.file, args.config) is None:
             return 1
-        except SftpConnectionError as exc:
-            print(f"Could not connect to the SFTP server: {exc}", file=sys.stderr)
-            return 1
-        print(f"Uploaded as {final_path}")
-        print(f"Job ID: {job_id}")
         print("Run `python -m uploader.upload_job download` once it's ready to fetch the recording.")
         return 0
+
+    if args.mode == "send":
+        uploaded = _upload_and_report(args.file, args.config)
+        if uploaded is None:
+            return 1
+        job_id, _final_path = uploaded
+        return _wait_and_report(
+            args.config, job_id, Path(args.file).name, args.out, args.poll_interval, args.timeout
+        )
 
     # download mode
     if args.job_id:
@@ -220,19 +270,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Error: {exc}", file=sys.stderr)
             return 1
 
-    try:
-        destination = download_recording(
-            args.config, job_id, original_name, args.out, args.poll_interval, args.timeout
-        )
-    except (SftpConnectionError, RuntimeError, TimeoutError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
-    except KeyboardInterrupt:
-        print("\nStopped waiting.", file=sys.stderr)
-        return 1
-
-    print(f"Downloaded to {destination}")
-    return 0
+    return _wait_and_report(args.config, job_id, original_name, args.out, args.poll_interval, args.timeout)
 
 
 if __name__ == "__main__":

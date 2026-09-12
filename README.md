@@ -54,24 +54,40 @@ a plain SFTP server, tolerant of intermittent connectivity.
    (if you're already inside a clone of this repo, as on the machine this
    was developed on, just run `./scripts/setup_uploader.sh` directly).
 
-4. From that machine, upload a job:
+   This also installs a `chamber` command to `~/.local/bin` that wraps the
+   uploader with this install's `config.yaml` baked in, so daily use doesn't
+   need `.venv/bin/python -m uploader.upload_job --config ...` typed out each
+   time (the script tells you if `~/.local/bin` needs adding to your PATH).
+
+4. From that machine, send a job -- uploads the file and waits for the
+   finished recording, in one step:
 
    ```
-   cd ~/buckyball-chamber
-   .venv/bin/python -m uploader.upload_job upload my_track.wav --config config.yaml
+   chamber send my_track.wav
+   ```
+
+   Or do the two steps separately if you don't want to wait around:
+
+   ```
+   chamber upload my_track.wav
    ```
 
    This prints a job ID and remembers it locally as "the last upload" (in a
-   small state file next to `config.yaml`), so the next `download` with no
-   arguments knows what to fetch. Then fetch the result:
+   small state file next to `config.yaml`), so a later `download` with no
+   arguments knows what to fetch:
 
    ```
-   .venv/bin/python -m uploader.upload_job download --config config.yaml
+   chamber download
    ```
 
-   **Waiting mode**: if the recording isn't ready yet, `download` doesn't
-   just fail -- it polls until the chamber finishes processing the job,
-   downloading it the moment it appears. What this looks like:
+   (No `chamber` on your PATH, or want to call it directly? Use
+   `.venv/bin/python -m uploader.upload_job <upload|download|send> ... --config config.yaml`
+   from inside `~/buckyball-chamber` instead -- same commands, same
+   behavior.)
+
+   **Waiting mode**: `send` and `download` don't just fail if the recording
+   isn't ready yet -- both poll until the chamber finishes processing the
+   job, downloading it the moment it appears. What this looks like:
 
    - Downloads immediately if the recording is already sitting in
      `recordings/` on the server (e.g. you ran `download` again after
