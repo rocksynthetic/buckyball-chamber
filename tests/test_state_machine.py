@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import time
 from pathlib import Path
 
 import pytest
@@ -158,6 +160,29 @@ def test_recording_failure_remote_file_tidied_on_next_connected_pass(
 
     assert not Path(fake_sftp.remote_path("processing", "job-1__track.wav")).exists()
     assert Path(fake_sftp.remote_path("failed", "job-1__track.wav")).exists()
+
+
+def test_run_forever_releases_lock_on_stop(config: Config):
+    """A stop() requested before the loop body ever runs (simulating SIGTERM
+    landing during the first iteration) must still leave no lock file behind
+    -- otherwise a fast systemd restart sees a fresh-looking lock and refuses
+    to start, thinking a prior instance is still running."""
+    client = ChamberClient(config)
+    client.stop()
+    client.run_forever()
+    assert not config.lock_path.exists()
+
+
+def test_acquire_lock_rejects_recent_lock_but_allows_stale_one(config: Config):
+    client = ChamberClient(config)
+    client._acquire_lock()
+    with pytest.raises(RuntimeError, match="another instance appears to be running"):
+        ChamberClient(config)._acquire_lock()
+
+    # Backdate the lock file to simulate one left by a crashed/killed process.
+    old_time = time.time() - 9999
+    os.utime(config.lock_path, (old_time, old_time))
+    ChamberClient(config)._acquire_lock()  # does not raise
 
 
 def test_download_skipped_when_disk_low(config: Config, fake_sftp: FakeSftp, monkeypatch):

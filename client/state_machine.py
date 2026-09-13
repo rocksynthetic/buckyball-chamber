@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -47,10 +48,10 @@ class ChamberClient:
         self.config.downloads_dir.mkdir(parents=True, exist_ok=True)
         self.config.recordings_dir.mkdir(parents=True, exist_ok=True)
         self.store = JobStore(self.config.db_path)
-        self._stop_requested = False
+        self._stop_event = threading.Event()
 
     def stop(self) -> None:
-        self._stop_requested = True
+        self._stop_event.set()
 
     # -- single-instance lock -------------------------------------------------
 
@@ -65,6 +66,9 @@ class ChamberClient:
                 )
             logger.warning("stale lock file (%.0fs old) found; assuming a prior crash", age)
         lock_path.write_text(str(time.time()))
+
+    def _release_lock(self) -> None:
+        self.config.lock_path.unlink(missing_ok=True)
 
     def _heartbeat_lock(self) -> None:
         self.config.lock_path.write_text(str(time.time()))
@@ -244,9 +248,15 @@ class ChamberClient:
 
     def run_forever(self) -> None:
         self._acquire_lock()
+        try:
+            self._run_loop()
+        finally:
+            self._release_lock()
+
+    def _run_loop(self) -> None:
         backoff = self.config.sftp.backoff_base_seconds
 
-        while not self._stop_requested:
+        while not self._stop_event.is_set():
             self._heartbeat_lock()
             connected = False
             sftp = SftpClient(self.config.sftp)
@@ -281,4 +291,8 @@ class ChamberClient:
                 sleep_seconds = backoff
                 backoff = min(backoff * 2, self.config.sftp.backoff_cap_seconds)
 
-            time.sleep(sleep_seconds)
+            # Event.wait (rather than time.sleep) so stop() wakes us
+            # immediately instead of leaving systemd to wait out a full
+            # poll interval or backoff (up to backoff_cap_seconds) before
+            # SIGKILL-ing an unresponsive process.
+            self._stop_event.wait(sleep_seconds)
