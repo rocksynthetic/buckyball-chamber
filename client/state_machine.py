@@ -96,18 +96,29 @@ class ChamberClient:
                 self._tidy_failed_job(sftp, job_id)
 
     def _tidy_failed_job(self, sftp: SftpClient, job_id: str) -> None:
-        """Best-effort: move a newly-FAILED job's remote file out of
-        processing/ into failed/ for operator visibility. Not required for
-        correctness -- the local DB state is what actually stops reprocessing."""
+        """Best-effort: move a FAILED job's remote file out of processing/
+        into failed/ for operator visibility, and so the uploader's
+        download/send --wait stops polling instead of waiting forever. Not
+        required for correctness -- the local DB state is what actually
+        stops reprocessing."""
         job = self.store.get(job_id)
         if job is None:
             return
+        old = sftp.remote_path("processing", source_filename(job))
+        if not sftp.exists(old):
+            return  # already tidied (or never claimed remotely)
         try:
-            old = sftp.remote_path("processing", source_filename(job))
             new = sftp.remote_path("failed", source_filename(job))
             sftp.rename(old, new)
         except Exception as exc:  # noqa: BLE001
             logger.debug("could not tidy failed job %s remotely: %s", job_id, exc)
+
+    def _tidy_pending_failures(self, sftp: SftpClient) -> None:
+        """Catch up on remote tidying for jobs that reached FAILED with no
+        sftp connection on hand at the time -- e.g. a playback/recording
+        error from _record_pending, which is intentionally connectivity-free."""
+        for job in self.store.jobs_in_state(JobState.FAILED):
+            self._tidy_failed_job(sftp, job.job_id)
 
     # -- remote-dependent steps -------------------------------------------------
 
@@ -252,6 +263,7 @@ class ChamberClient:
                     self._discover_and_claim(sftp)
                     self._download_pending(sftp)
                     self._upload_pending(sftp)
+                    self._tidy_pending_failures(sftp)
                     backoff = self.config.sftp.backoff_base_seconds
                 except SftpConnectionError as exc:
                     logger.warning("lost sftp connection mid-pass: %s", exc)

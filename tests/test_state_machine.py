@@ -122,6 +122,44 @@ def test_recording_failure_moves_to_failed_after_retry_budget(config: Config, mo
     assert client.store.get("job-1").state == JobState.FAILED
 
 
+def test_recording_failure_remote_file_tidied_on_next_connected_pass(
+    config: Config, fake_sftp: FakeSftp, monkeypatch
+):
+    """_record_pending fails a job with no sftp connection on hand (by
+    design -- playback/recording never depends on connectivity), so its
+    remote file is left in processing/ rather than moved to failed/
+    immediately. The next connected pass must catch this up, or the
+    uploader's download/send --wait polls forever for a recording that will
+    never arrive (it only gives up early by noticing failed/)."""
+
+    def failing_play_and_record(playback_path, recording_path, audio_config):
+        raise RuntimeError("unsupported sample rate")
+
+    monkeypatch.setattr("client.state_machine.get_duration_seconds", lambda path: 1.0)
+    monkeypatch.setattr("client.state_machine.play_and_record", failing_play_and_record)
+
+    client = ChamberClient(config)
+    client._ensure_remote_dirs(fake_sftp)
+    _drop_incoming_job(fake_sftp, "job-1", "track.wav")
+    client._discover_and_claim(fake_sftp)
+    client.store.set_state("job-1", JobState.DOWNLOADED)
+    client._local_input_path("job-1").parent.mkdir(parents=True, exist_ok=True)
+    client._local_input_path("job-1").write_bytes(b"fake-wav-bytes")
+
+    for _ in range(config.client.max_job_retries):
+        client._record_pending()
+    assert client.store.get("job-1").state == JobState.FAILED
+
+    # Not yet tidied -- _record_pending has no sftp connection to do it with.
+    assert Path(fake_sftp.remote_path("processing", "job-1__track.wav")).exists()
+    assert not Path(fake_sftp.remote_path("failed", "job-1__track.wav")).exists()
+
+    client._tidy_pending_failures(fake_sftp)
+
+    assert not Path(fake_sftp.remote_path("processing", "job-1__track.wav")).exists()
+    assert Path(fake_sftp.remote_path("failed", "job-1__track.wav")).exists()
+
+
 def test_download_skipped_when_disk_low(config: Config, fake_sftp: FakeSftp, monkeypatch):
     client = ChamberClient(config)
     client._ensure_remote_dirs(fake_sftp)
