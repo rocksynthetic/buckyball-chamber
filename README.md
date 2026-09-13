@@ -58,6 +58,18 @@ a plain SFTP server, tolerant of intermittent connectivity.
    uploader with this install's `config.yaml` baked in, so daily use doesn't
    need `.venv/bin/python -m uploader.upload_job --config ...` typed out each
    time (the script tells you if `~/.local/bin` needs adding to your PATH).
+   `chamber` works from any directory you happen to be in -- no need to `cd`
+   into `~/buckyball-chamber` first, and a relative path you pass it (a file
+   to upload, `--out`, etc.) resolves against wherever you actually are, not
+   the install directory.
+
+   To upgrade later (pull the latest code, update dependencies, and
+   regenerate the `chamber` wrapper in case it changed), just re-run the
+   same command:
+
+   ```
+   ~/buckyball-chamber/scripts/setup_uploader.sh
+   ```
 
    The wizard generates a dedicated SSH keypair for this install under
    `keys/id_ed25519` (not `~/.ssh` -- kept separate from any other keys on
