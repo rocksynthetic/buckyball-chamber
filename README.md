@@ -148,6 +148,18 @@ a plain SFTP server, tolerant of intermittent connectivity.
 - WAV only for both playback and recordings, in this MVP.
 - Input channel count is configurable independently of output channel count,
   so an ambisonic microphone (4+ channels) is supported directly.
+- On Linux, raw USB ALSA devices can require different hardware channel counts
+  at different sample rates. The client and setup wizard read the device's
+  `/proc/asound` USB stream descriptors and open the matching hardware stream.
+  For example, the Scarlett 18i20 4th Gen advertises 26 channels at 44.1/48 kHz,
+  18 at 88.2/96 kHz, and 10 at 176.4/192 kHz. Keep `output_channels` and
+  `input_channels` set to the channels you actually want (e.g. 2 and 4): audio
+  goes to the first configured playback channels, other hardware outputs stay
+  silent, and only the first configured capture channels are saved. Physical
+  socket routing still depends on the interface's mixer configuration.
+  Select the original Scarlett hardware device in the wizard; no `.asoundrc`
+  wrapper or system ALSA configuration is required. Existing configs work.
+  macOS continues to use Core Audio with the configured channel counts.
 - Each job opens the audio device at its own file's sample rate rather than
   a fixed configured rate -- this relies on the client having exclusive
   access to the device (no OS mixer resampling everything to one shared
@@ -166,6 +178,13 @@ a plain SFTP server, tolerant of intermittent connectivity.
 pip install -r requirements-dev.txt
 pytest
 ```
+
+The Linux USB adapter uses PortAudio's public `PaAlsaStreamInfo` ABI to bypass
+its cached minimum channel count, which can otherwise reflect the wrong rate
+family. Since sounddevice has no public ALSA settings class, `client/alsa.py`
+contains a narrow adapter for its private stream-parameter builder. Regression
+tests cover that boundary, native parameter layout, the wizard, and platforms
+that do not use ALSA. Re-run these tests when upgrading sounddevice.
 
 ### Lossless transfer compression
 

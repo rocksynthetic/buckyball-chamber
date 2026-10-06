@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import logging
+import re
+import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
 
+from client.alsa import AlsaSettings, usb_channel_counts, usb_stream_text
 from client.config import AudioConfig
 
 logger = logging.getLogger(__name__)
@@ -14,6 +18,53 @@ logger = logging.getLogger(__name__)
 
 class AudioDeviceError(RuntimeError):
     pass
+
+
+@dataclass
+class AudioEndpoint:
+    device: int
+    channels: int
+    extra_settings: AlsaSettings | None = None
+
+
+def resolve_endpoint(device: int, *, kind: str, channels: int, samplerate: int) -> AudioEndpoint:
+    """Resolve logical channels to the USB hardware stream at this job's rate."""
+    endpoint = AudioEndpoint(device, channels)
+    if sys.platform != "linux":
+        return endpoint
+    info = sd.query_devices(device)
+    if sd.query_hostapis(info["hostapi"])["name"] != "ALSA":
+        return endpoint
+    match = re.search(r"\(hw:(\d+),(\d+)\)$", info["name"])
+    if not match:
+        return endpoint
+    card, pcm = map(int, match.groups())
+    text = usb_stream_text(card, pcm)
+    if text is None:
+        return endpoint
+    counts = usb_channel_counts(text, kind, samplerate)
+    valid = [count for count in counts if count >= channels]
+    if not valid:
+        raise AudioDeviceError(
+            f"{kind} device {info['name']!r}: USB hardware advertises channel counts "
+            f"{counts} at {samplerate}Hz; requested {channels} channel(s)"
+        )
+    endpoint.channels = min(valid)
+    endpoint.extra_settings = AlsaSettings(f"hw:{card},{pcm}")
+    logger.info("%s device %r: %d logical channels, %d hardware channels at %dHz",
+                kind, info["name"], channels, endpoint.channels, samplerate)
+    return endpoint
+
+
+def _endpoint_kwargs(endpoint: AudioEndpoint) -> dict:
+    return {"extra_settings": endpoint.extra_settings} if endpoint.extra_settings is not None else {}
+
+
+def _pad_outputs(data: np.ndarray, channels: int) -> np.ndarray:
+    """Unused hardware outputs must receive silence, never duplicated audio."""
+    if channels == data.shape[1]:
+        return data
+    return np.pad(data, ((0, 0), (0, channels - data.shape[1])))
 
 
 def list_devices() -> list[dict]:
@@ -85,15 +136,17 @@ def _match_channels(data: np.ndarray, target_channels: int) -> np.ndarray:
     return data[:, :target_channels]
 
 
-def _check_device_supports_rate(device_index: int, *, kind: str, channels: int, samplerate: int) -> None:
+def _check_device_supports_rate(device_index: int, *, kind: str, channels: int, samplerate: int,
+                                extra_settings=None) -> None:
     """Pre-flight check, so an unsupported rate fails with a clear message
     instead of a raw PortAudioError from deep inside sd.playrec."""
     check_fn = sd.check_output_settings if kind == "output" else sd.check_input_settings
     try:
-        check_fn(device=device_index, channels=channels, samplerate=samplerate, dtype="float32")
+        kwargs = {"extra_settings": extra_settings} if extra_settings is not None else {}
+        check_fn(device=device_index, channels=channels, samplerate=samplerate, dtype="float32", **kwargs)
     except Exception as exc:  # noqa: BLE001 - sd raises its own PortAudioError type
         raise AudioDeviceError(
-            f"{kind} device does not support {samplerate}Hz at {channels} channel(s): {exc}"
+            f"{kind} device {device_index} rejected settings: {samplerate}Hz, {channels} channel(s), float32: {exc}"
         ) from exc
 
 
@@ -125,15 +178,23 @@ def play_and_record(
     data, samplerate = sf.read(str(playback_path), dtype="float32", always_2d=True)
     data = _match_channels(data, audio_config.output_channels)
 
+    output = resolve_endpoint(output_device, kind="output", channels=audio_config.output_channels,
+                              samplerate=samplerate)
+    input_ = resolve_endpoint(input_device, kind="input", channels=audio_config.input_channels,
+                              samplerate=samplerate)
+    data = _pad_outputs(data, output.channels)
+
     _check_device_supports_rate(
-        output_device, kind="output", channels=audio_config.output_channels, samplerate=samplerate
+        output_device, kind="output", channels=output.channels, samplerate=samplerate,
+        **_endpoint_kwargs(output)
     )
     _check_device_supports_rate(
-        input_device, kind="input", channels=audio_config.input_channels, samplerate=samplerate
+        input_device, kind="input", channels=input_.channels, samplerate=samplerate,
+        **_endpoint_kwargs(input_)
     )
 
     tail_frames = int(round(audio_config.tail_seconds * samplerate))
-    silence = np.zeros((tail_frames, audio_config.output_channels), dtype="float32")
+    silence = np.zeros((tail_frames, output.channels), dtype="float32")
     padded = np.concatenate([data, silence], axis=0)
 
     logger.info(
@@ -142,15 +203,19 @@ def play_and_record(
         audio_config.input_channels,
     )
 
+    stream_kwargs = {}
+    if input_.extra_settings is not None or output.extra_settings is not None:
+        stream_kwargs["extra_settings"] = (input_.extra_settings, output.extra_settings)
     recorded = sd.playrec(
         padded,
         samplerate=samplerate,
-        channels=audio_config.input_channels,
+        channels=input_.channels,
         device=(input_device, output_device),
         dtype="float32",
+        **stream_kwargs,
     )
     sd.wait()
 
     Path(recording_path).parent.mkdir(parents=True, exist_ok=True)
-    sf.write(str(recording_path), recorded, samplerate)
+    sf.write(str(recording_path), recorded[:, :audio_config.input_channels], samplerate)
     logger.info("wrote recording to %s (%dHz)", recording_path, samplerate)

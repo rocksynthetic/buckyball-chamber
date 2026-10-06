@@ -11,7 +11,10 @@ import sys
 import numpy as np
 import sounddevice as sd
 
-from client.audio import list_devices
+from client.audio import (
+    _check_device_supports_rate, _endpoint_kwargs, _pad_outputs,
+    list_devices, resolve_endpoint,
+)
 from client.config import save_config
 from client.wizard_common import (
     ensure_host_key_trusted,
@@ -46,20 +49,29 @@ def _choose_device(devices: list[dict], kind: str) -> dict:
 
 
 def _test_playback(device_index: int, channels: int, samplerate: int) -> None:
+    endpoint = resolve_endpoint(device_index, kind="output", channels=channels, samplerate=samplerate)
+    _check_device_supports_rate(device_index, kind="output", channels=endpoint.channels,
+                                samplerate=samplerate, **_endpoint_kwargs(endpoint))
     duration = 1.0
     t = np.linspace(0, duration, int(samplerate * duration), endpoint=False)
     tone = (0.2 * np.sin(2 * np.pi * 440 * t)).astype("float32")
     data = np.tile(tone[:, None], (1, channels))
     print(f"Playing a 1s test tone on {channels} channel(s)...")
-    sd.play(data, samplerate=samplerate, device=device_index)
+    sd.play(_pad_outputs(data, endpoint.channels), samplerate=samplerate,
+            device=device_index, **_endpoint_kwargs(endpoint))
     sd.wait()
 
 
 def _test_recording(device_index: int, channels: int, samplerate: int) -> None:
+    endpoint = resolve_endpoint(device_index, kind="input", channels=channels, samplerate=samplerate)
+    _check_device_supports_rate(device_index, kind="input", channels=endpoint.channels,
+                                samplerate=samplerate, **_endpoint_kwargs(endpoint))
     duration = 3.0
     print(f"Recording {duration}s from {channels} channel(s) -- make some noise...")
-    rec = sd.rec(int(duration * samplerate), samplerate=samplerate, channels=channels, device=device_index)
+    rec = sd.rec(int(duration * samplerate), samplerate=samplerate, channels=endpoint.channels,
+                 device=device_index, **_endpoint_kwargs(endpoint))
     sd.wait()
+    rec = rec[:, :channels]
     peaks = np.abs(rec).max(axis=0)
     for ch, peak in enumerate(peaks):
         bar = "#" * int(peak * 40)

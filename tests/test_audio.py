@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from client.audio import AudioDeviceError, play_and_record
+from client.audio import AudioDeviceError, AudioEndpoint, play_and_record
 from client.config import AudioConfig
 
 
@@ -17,7 +17,10 @@ def _write_wav(path: Path, samplerate: int, channels: int = 2, duration: float =
 
 
 @pytest.fixture
-def audio_config() -> AudioConfig:
+def audio_config(monkeypatch) -> AudioConfig:
+    # These tests isolate file-rate behavior; USB negotiation has its own suite.
+    monkeypatch.setattr("client.audio.resolve_endpoint", lambda device, **kwargs:
+                        AudioEndpoint(device, kwargs["channels"]))
     return AudioConfig(
         output_device_name="fake",
         input_device_name="fake",
