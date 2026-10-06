@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from client.audio import get_duration_seconds, play_and_record
+from client.transfer import download_audio, upload_compressed, wav_name
 from client.config import Config
 from client.job_store import Job, JobState, JobStore
 from client.sftp_client import SftpClient, SftpConnectionError
@@ -37,7 +38,7 @@ def source_filename(job: Job) -> str:
 
 
 def recording_filename(job: Job) -> str:
-    stem = Path(job.original_name).stem
+    stem = Path(wav_name(job.original_name)).stem
     return f"{job.job_id}__{stem}__recording.wav"
 
 
@@ -183,7 +184,7 @@ class ChamberClient:
                 return
             try:
                 remote_path = sftp.remote_path("processing", source_filename(job))
-                sftp.download_atomic(remote_path, local_input)
+                download_audio(sftp, remote_path, local_input)
                 self.store.set_state(job.job_id, JobState.DOWNLOADED)
                 logger.info("downloaded job %s", job.job_id)
             except Exception as exc:  # noqa: BLE001
@@ -212,9 +213,15 @@ class ChamberClient:
         for job in self.store.jobs_in_state(JobState.RECORDED):
             local_recording = self._local_recording_path(job.job_id)
             try:
-                sftp.upload_atomic(
-                    local_recording, sftp.remote_path("recordings"), recording_filename(job)
-                )
+                # Legacy jobs keep their old response format for older uploaders.
+                if job.original_name.endswith(".xz"):
+                    upload_compressed(
+                        sftp, local_recording, sftp.remote_path("recordings"), recording_filename(job)
+                    )
+                else:
+                    sftp.upload_atomic(
+                        local_recording, sftp.remote_path("recordings"), recording_filename(job)
+                    )
                 self.store.set_state(job.job_id, JobState.UPLOADED)
                 sftp.rename(
                     sftp.remote_path("processing", source_filename(job)),

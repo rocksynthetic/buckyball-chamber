@@ -166,3 +166,24 @@ a plain SFTP server, tolerant of intermittent connectivity.
 pip install -r requirements-dev.txt
 pytest
 ```
+
+### Lossless transfer compression
+
+New uploads travel as `.wav.xz` using LZMA2 (preset 6 with the extreme
+option). Both endpoints automatically decode them to the original WAV before
+playback or delivery; samples and WAV metadata are preserved byte for byte.
+Commands and output filenames stay the same. Python's standard-library `lzma`
+module handles compression on macOS and Ubuntu; no new pip dependency or
+external `xz` executable is needed with normal Python installations.
+
+Update the remote client and restart its service **before** using the updated
+uploader. Older clients cannot decode compressed jobs. The updated client
+also accepts old `.wav` jobs and returns those recordings uncompressed, so
+existing uploaders and queued jobs continue to work. The updated uploader
+accepts either response format. No SFTP server changes are required.
+
+Compression streams through temporary files and validates the XZ checksum
+before publishing a decoded WAV. Allow disk space for both compressed and
+uncompressed copies. Compression takes CPU time and savings depend on the
+audio; noisy recordings may compress poorly. This is byte-exact transport,
+not a claim that LZMA2 always gives the smallest possible audio file.

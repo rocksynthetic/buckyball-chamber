@@ -1,12 +1,12 @@
 """Small CLI to upload a playback job to the chamber's SFTP queue, and to
 fetch the resulting recording back.
 
-Upload writes the file to incoming/<job_id>__<name>.wav.part, then issues a
+Upload writes the file to incoming/<job_id>__<name>.wav.xz.part, then issues a
 separate atomic rename to drop the .part suffix -- the chamber client only
-ever treats extensionless files in incoming/ as fully arrived, so this
+ever treats completed files in incoming/ as fully arrived, so this
 two-step upload is what keeps a half-uploaded file invisible to it.
 
-Download looks for recordings/<job_id>__<stem>__recording.wav, waiting and
+Download looks for recordings/<job_id>__<stem>__recording.wav.xz (or legacy .wav), waiting and
 polling for it if it isn't there yet (and bailing out if the job shows up in
 failed/ instead). If no job is specified it defaults to the last job this
 tool uploaded (tracked in a small local state file next to the config).
@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import lzma
 import secrets
 import sys
 import time
@@ -31,6 +32,7 @@ from typing import Callable
 
 import yaml
 
+from client.transfer import download_audio, upload_compressed
 from client.config import SftpConfig
 from client.sftp_client import SftpClient, SftpConnectionError
 from client.wizard_common import test_sftp_connection
@@ -89,7 +91,7 @@ def upload(file_path: str, config_path: str) -> tuple[str, str]:
     client.connect()
     try:
         client.ensure_dir(client.remote_path("incoming"))
-        final_path = client.upload_atomic(local_path, client.remote_path("incoming"), remote_name)
+        final_path = upload_compressed(client, local_path, client.remote_path("incoming"), remote_name)
     finally:
         client.close()
 
@@ -135,10 +137,12 @@ def wait_for_recording(
             continue
 
         try:
-            if client.exists(client.remote_path("recordings", recording_name)):
-                client.download_atomic(client.remote_path("recordings", recording_name), destination)
-                return destination
-            if client.exists(client.remote_path("failed", failed_name)):
+            for name in (recording_name + ".xz", recording_name):
+                if client.exists(client.remote_path("recordings", name)):
+                    download_audio(client, client.remote_path("recordings", name), destination)
+                    return destination
+            if any(client.exists(client.remote_path("failed", name))
+                   for name in (failed_name + ".xz", failed_name)):
                 raise RuntimeError(
                     f"job {job_id} failed in the chamber (see failed/{failed_name} on the server)"
                 )
@@ -175,7 +179,7 @@ def _wait_and_report(
 ) -> int:
     try:
         destination = download_recording(config_path, job_id, original_name, out_path, poll_interval, timeout)
-    except (SftpConnectionError, RuntimeError, TimeoutError) as exc:
+    except (SftpConnectionError, RuntimeError, OSError, EOFError, lzma.LZMAError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
@@ -191,7 +195,7 @@ def _upload_and_report(file_path: str, config_path: str) -> tuple[str, str] | No
     on success or None (having already printed an error) on failure."""
     try:
         job_id, final_path = upload(file_path, config_path)
-    except (FileNotFoundError, ValueError) as exc:
+    except (OSError, ValueError, lzma.LZMAError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return None
     except SftpConnectionError as exc:
