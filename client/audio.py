@@ -159,6 +159,10 @@ def play_and_record(
     recording from the input device, for the playback's duration plus a
     fixed tail (to catch reverb/decay), then write the recording to disk.
 
+    Each stream first runs with silent output for the configured tail duration
+    so the device can settle. Capture during this period is discarded;
+    the saved recording still covers only playback plus the configured tail.
+
     The stream is opened at the playback file's own sample rate rather than
     a fixed configured rate: since the client has exclusive access to the
     device (no OS mixer resampling everything to one shared rate), each job
@@ -194,11 +198,14 @@ def play_and_record(
     )
 
     tail_frames = int(round(audio_config.tail_seconds * samplerate))
+    settle_frames = tail_frames
+    lead_in = np.zeros((settle_frames, output.channels), dtype="float32")
     silence = np.zeros((tail_frames, output.channels), dtype="float32")
-    padded = np.concatenate([data, silence], axis=0)
+    padded = np.concatenate([lead_in, data, silence], axis=0)
 
     logger.info(
-        "playing %s (%.2fs @ %dHz) + %.2fs tail, recording %d channel(s)",
+        "settling device for %.2fs, then playing %s (%.2fs @ %dHz) + %.2fs tail, recording %d channel(s)",
+        audio_config.tail_seconds,
         playback_path, len(data) / samplerate, samplerate, audio_config.tail_seconds,
         audio_config.input_channels,
     )
@@ -217,5 +224,5 @@ def play_and_record(
     sd.wait()
 
     Path(recording_path).parent.mkdir(parents=True, exist_ok=True)
-    sf.write(str(recording_path), recorded[:, :audio_config.input_channels], samplerate)
+    sf.write(str(recording_path), recorded[settle_frames:, :audio_config.input_channels], samplerate)
     logger.info("wrote recording to %s (%dHz)", recording_path, samplerate)

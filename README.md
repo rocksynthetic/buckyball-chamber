@@ -165,6 +165,13 @@ a plain SFTP server, tolerant of intermittent connectivity.
   access to the device (no OS mixer resampling everything to one shared
   rate). If the device can't support a given file's rate, the job fails
   with a clear error and follows the normal retry/failed path.
+- After opening the audio stream, the client sends silence for the configured
+  recording tail duration (`audio.tail_seconds`, set in the wizard)
+  before playback so the interface can settle after initialization or a sample
+  rate change. The same stream stays open through playback and recording.
+  The source file is unchanged, and capture during the settling period is
+  discarded: the returned WAV still contains only playback plus the configured
+  recording tail. This applies on Linux and macOS without a config change.
 - Local disk usage stays bounded: a job's local files are deleted as soon as
   its recording is confirmed uploaded; failed-job files and orphaned temp
   files are swept on a TTL (see `client.failed_job_retention_days` /

@@ -146,10 +146,12 @@ def test_playrec_silences_extra_outputs_and_retains_logical_inputs(
     monkeypatch.setattr(audio.sd, "check_input_settings", check)
 
     def playrec(data, **kwargs):
-        assert data.shape == (100 + round(cfg.tail_seconds * rate), hardware_channels)
-        np.testing.assert_array_equal(data[:100, :2], signal)
+        settle_frames = round(cfg.tail_seconds * rate)
+        assert data.shape == (settle_frames + 100 + round(cfg.tail_seconds * rate), hardware_channels)
+        assert not np.any(data[:settle_frames])
+        np.testing.assert_array_equal(data[settle_frames:settle_frames + 100, :2], signal)
         assert not np.any(data[:, 2:])
-        assert not np.any(data[100:])
+        assert not np.any(data[settle_frames + 100:])
         assert kwargs["channels"] == hardware_channels
         assert all(isinstance(s, AlsaSettings) for s in kwargs["extra_settings"])
         return np.tile(np.arange(hardware_channels, dtype="float32") / 100,
@@ -160,6 +162,7 @@ def test_playrec_silences_extra_outputs_and_retains_logical_inputs(
     assert len(checks) == 2
     result, result_rate = sf.read(target, always_2d=True)
     assert result_rate == rate
+    assert len(result) == 100 + round(cfg.tail_seconds * rate)
     assert result.shape[1] == 4
     np.testing.assert_allclose(result[0], np.arange(4) / 100, atol=1 / 32768)
 

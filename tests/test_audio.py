@@ -74,3 +74,42 @@ def test_play_and_record_raises_clear_error_for_unsupported_rate(
 
     with pytest.raises(AudioDeviceError, match="192000"):
         play_and_record(playback_path, recording_path, audio_config)
+
+
+@pytest.mark.parametrize("samplerate", [44100, 96000])
+def test_device_settles_in_same_stream_without_changing_audio_files(
+    tmp_path, audio_config, monkeypatch, samplerate,
+):
+    source = tmp_path / "source.wav"
+    destination = tmp_path / "recording.wav"
+    signal = np.tile(np.array([0.1, -0.2], dtype="float32"), (127, 1))
+    sf.write(source, signal, samplerate, subtype="FLOAT")
+    original_bytes = source.read_bytes()
+    settle_frames = round(audio_config.tail_seconds * samplerate)
+    tail_frames = round(audio_config.tail_seconds * samplerate)
+    monkeypatch.setattr("client.audio.find_device", lambda *a, **k: 0)
+    monkeypatch.setattr("client.audio.sd.check_output_settings", lambda **k: None)
+    monkeypatch.setattr("client.audio.sd.check_input_settings", lambda **k: None)
+    events = []
+
+    def fake_playrec(data, **kwargs):
+        events.append("open_and_play")
+        assert kwargs["samplerate"] == samplerate
+        assert len(data) == settle_frames + len(signal) + tail_frames
+        assert not np.any(data[:settle_frames])
+        np.testing.assert_array_equal(data[settle_frames:settle_frames + len(signal)], signal)
+        assert not np.any(data[settle_frames + len(signal):])
+        captured = np.full((len(data), 4), 0.125, dtype="float32")
+        # Distinct initialization artifact must not appear in the saved WAV.
+        captured[:settle_frames] = 0.75
+        return captured
+
+    monkeypatch.setattr("client.audio.sd.playrec", fake_playrec)
+    monkeypatch.setattr("client.audio.sd.wait", lambda: events.append("wait"))
+    play_and_record(source, destination, audio_config)
+    result, rate = sf.read(destination, always_2d=True)
+    assert events == ["open_and_play", "wait"]
+    assert rate == samplerate
+    assert result.shape == (len(signal) + tail_frames, 4)
+    np.testing.assert_array_equal(result, 0.125)
+    assert source.read_bytes() == original_bytes
