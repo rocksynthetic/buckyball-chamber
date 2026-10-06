@@ -47,9 +47,9 @@ def test_play_and_record_uses_files_own_samplerate_not_config(
     def fake_playrec(data, **kwargs):
         captured["samplerate"] = kwargs["samplerate"]
         captured["frames"] = len(data)
-        return np.zeros((len(data), audio_config.input_channels), dtype="float32")
+        return np.zeros((len(data), audio_config.input_channels), dtype="float32"), 0
 
-    monkeypatch.setattr("client.audio.sd.playrec", fake_playrec)
+    monkeypatch.setattr("client.audio._playrec_with_latency", fake_playrec)
     monkeypatch.setattr("client.audio.sd.wait", lambda: None)
 
     play_and_record(playback_path, recording_path, audio_config)
@@ -102,13 +102,13 @@ def test_device_settles_in_same_stream_without_changing_audio_files(
         captured = np.full((len(data), 4), 0.125, dtype="float32")
         # Distinct initialization artifact must not appear in the saved WAV.
         captured[:settle_frames] = 0.75
-        return captured
+        return captured, 0
 
-    monkeypatch.setattr("client.audio.sd.playrec", fake_playrec)
+    monkeypatch.setattr("client.audio._playrec_with_latency", fake_playrec)
     monkeypatch.setattr("client.audio.sd.wait", lambda: events.append("wait"))
     play_and_record(source, destination, audio_config)
     result, rate = sf.read(destination, always_2d=True)
-    assert events == ["open_and_play", "wait"]
+    assert events == ["open_and_play"]
     assert rate == samplerate
     assert result.shape == (len(signal) + tail_frames, 4)
     np.testing.assert_array_equal(result, 0.125)

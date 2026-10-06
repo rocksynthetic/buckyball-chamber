@@ -172,6 +172,16 @@ a plain SFTP server, tolerant of intermittent connectivity.
   The source file is unchanged, and capture during the settling period is
   discarded: the returned WAV still contains only playback plus the configured
   recording tail. This applies on Linux and macOS without a config change.
+- Recordings are shifted earlier by the sum of the opened stream's reported
+  input and output latencies, rounded to the nearest sample. The client logs
+  both reported values and the applied sample offset for every job, and keeps
+  capturing long enough to preserve the full playback duration plus tail.
+  Compensation uses the same stream that performs playback, rather than
+  querying a separate stream or using the device's default latency values.
+  Driver-reported latency is an estimate, not a physical loopback measurement;
+  converter or other unreported delay can remain. Acoustic travel time and
+  reverb are preserved. A stream with dropped/inserted samples fails the job
+  through the normal retry path because its timing cannot be trusted.
 - Local disk usage stays bounded: a job's local files are deleted as soon as
   its recording is confirmed uploaded; failed-job files and orphaned temp
   files are swept on a TTL (see `client.failed_job_retention_days` /

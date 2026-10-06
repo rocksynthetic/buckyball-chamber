@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
+import math
 import re
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -139,7 +141,7 @@ def _match_channels(data: np.ndarray, target_channels: int) -> np.ndarray:
 def _check_device_supports_rate(device_index: int, *, kind: str, channels: int, samplerate: int,
                                 extra_settings=None) -> None:
     """Pre-flight check, so an unsupported rate fails with a clear message
-    instead of a raw PortAudioError from deep inside sd.playrec."""
+    instead of a raw PortAudioError when opening the stream."""
     check_fn = sd.check_output_settings if kind == "output" else sd.check_input_settings
     try:
         kwargs = {"extra_settings": extra_settings} if extra_settings is not None else {}
@@ -148,6 +150,71 @@ def _check_device_supports_rate(device_index: int, *, kind: str, channels: int, 
         raise AudioDeviceError(
             f"{kind} device {device_index} rejected settings: {samplerate}Hz, {channels} channel(s), float32: {exc}"
         ) from exc
+
+
+def _playrec_with_latency(data: np.ndarray, *, samplerate: int, channels: int,
+                          logical_channels: int, device: tuple[int, int],
+                          **stream_kwargs) -> tuple[np.ndarray, int]:
+    """Capture extra frames and report the opened stream's latency in samples.
+
+    Keep one stream open: querying one stream and playing through a second
+    could change the very latency being compensated. Unused hardware input
+    channels need not be retained in memory.
+    """
+    finished = threading.Event()
+    errors = []
+    cursor = 0
+    recorded = None
+    total_frames = 0
+
+    def callback(indata, outdata, frames, time_info, status):
+        nonlocal cursor
+        outdata.fill(0)
+        try:
+            if status:
+                # Dropped/inserted samples invalidate a fixed alignment offset.
+                raise AudioDeviceError(f"audio stream timing interrupted: {status}")
+            count = min(frames, total_frames - cursor)
+            output_count = min(count, max(0, len(data) - cursor))
+            if output_count:
+                outdata[:output_count] = data[cursor:cursor + output_count]
+            recorded[cursor:cursor + count] = indata[:count, :logical_channels]
+            cursor += count
+        except Exception as exc:
+            errors.append(exc)
+            raise sd.CallbackAbort
+        if cursor >= total_frames:
+            raise sd.CallbackStop
+
+    stream = sd.Stream(
+        samplerate=samplerate, channels=(channels, data.shape[1]), device=device,
+        dtype="float32", callback=callback, finished_callback=finished.set,
+        **stream_kwargs,
+    )
+    try:
+        input_latency, output_latency = stream.latency
+        if not all(math.isfinite(value) and value >= 0
+                   for value in (input_latency, output_latency)):
+            raise AudioDeviceError(f"invalid reported stream latency: {stream.latency}")
+        delay_frames = int(round((input_latency + output_latency) * samplerate))
+        total_frames = len(data) + delay_frames
+        recorded = np.empty((total_frames, logical_channels), dtype="float32")
+        logger.info(
+            "stream-reported latency: input=%.6fs, output=%.6fs; "
+            "compensating %d samples (%.6fs) at %dHz",
+            input_latency, output_latency, delay_frames, delay_frames / samplerate, samplerate,
+        )
+        stream.start()
+        if not finished.wait(timeout=total_frames / samplerate + 30):
+            raise AudioDeviceError("audio stream did not finish within its expected duration")
+        if errors:
+            raise AudioDeviceError(f"playback/recording callback failed: {errors[0]}") from errors[0]
+        if cursor != total_frames:
+            raise AudioDeviceError(f"audio stream ended early: captured {cursor}/{total_frames} frames")
+        stream.stop()
+        return recorded, delay_frames
+    finally:
+        stream.close()
 
 
 def play_and_record(
@@ -162,6 +229,8 @@ def play_and_record(
     Each stream first runs with silent output for the configured tail duration
     so the device can settle. Capture during this period is discarded;
     the saved recording still covers only playback plus the configured tail.
+    The opened stream's reported input/output latency is also compensated,
+    with extra capture frames so shifting never shortens the requested tail.
 
     The stream is opened at the playback file's own sample rate rather than
     a fixed configured rate: since the client has exclusive access to the
@@ -213,16 +282,16 @@ def play_and_record(
     stream_kwargs = {}
     if input_.extra_settings is not None or output.extra_settings is not None:
         stream_kwargs["extra_settings"] = (input_.extra_settings, output.extra_settings)
-    recorded = sd.playrec(
+    recorded, delay_frames = _playrec_with_latency(
         padded,
         samplerate=samplerate,
         channels=input_.channels,
+        logical_channels=audio_config.input_channels,
         device=(input_device, output_device),
-        dtype="float32",
         **stream_kwargs,
     )
-    sd.wait()
 
     Path(recording_path).parent.mkdir(parents=True, exist_ok=True)
-    sf.write(str(recording_path), recorded[settle_frames:, :audio_config.input_channels], samplerate)
+    start = settle_frames + delay_frames
+    sf.write(str(recording_path), recorded[start:start + len(data) + tail_frames], samplerate)
     logger.info("wrote recording to %s (%dHz)", recording_path, samplerate)

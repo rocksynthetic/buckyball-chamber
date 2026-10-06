@@ -154,10 +154,10 @@ def test_playrec_silences_extra_outputs_and_retains_logical_inputs(
         assert not np.any(data[settle_frames + 100:])
         assert kwargs["channels"] == hardware_channels
         assert all(isinstance(s, AlsaSettings) for s in kwargs["extra_settings"])
-        return np.tile(np.arange(hardware_channels, dtype="float32") / 100,
-                       (len(data), 1))
+        return np.tile(np.arange(kwargs["logical_channels"], dtype="float32") / 100,
+                       (len(data), 1)), 0
 
-    monkeypatch.setattr(audio.sd, "playrec", playrec)
+    monkeypatch.setattr(audio, "_playrec_with_latency", playrec)
     audio.play_and_record(source, target, cfg)
     assert len(checks) == 2
     result, result_rate = sf.read(target, always_2d=True)
